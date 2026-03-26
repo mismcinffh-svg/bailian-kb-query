@@ -1,4 +1,4 @@
-# bailian-kb-query
+# Alibaba CN Knowledge Base Query (RAG)
 
 An [OpenClaw](https://github.com/openclaw/openclaw) skill for querying [Alibaba Cloud Bailian (百炼)](https://bailian.console.aliyun.com) Knowledge Base via RAG.
 
