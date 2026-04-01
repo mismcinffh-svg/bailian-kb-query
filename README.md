@@ -1,98 +1,63 @@
-# Alibaba CN Knowledge Base Query (RAG)
+# Bailian KB Query — Development Notes
 
-An [OpenClaw](https://github.com/openclaw/openclaw) skill for querying [Alibaba Cloud Bailian (百炼)](https://bailian.console.aliyun.com) Knowledge Base via RAG.
+## Project Overview
+- **Repo**: https://github.com/mismcinffh-svg/bailian-kb-query
+- **Skill location**: `~/.openclaw/workspace/skills/bailian-kb/`
+- **Status**: ✅ v1.0 Complete & Published
+- **Date**: 2026-03-26
 
-Upload your documents to Bailian → this skill lets your AI agent answer questions using your internal knowledge base with citations.
+## What It Does
+OpenClaw skill that queries Alibaba Cloud Bailian (百炼) Knowledge Base via RAG.
+Users upload documents to Bailian → agent answers questions from the KB with citations.
 
-## Features
-
-- 🔍 RAG-powered Q&A from your Bailian knowledge base
-- 📑 Returns answers with document citations
-- 🔒 Credentials stored separately in `CONFIG.md` (gitignored)
-- 🚀 First-time setup wizard guides users through configuration
-- 🤖 Designed for OpenClaw multi-agent systems
-
-## Prerequisites
-
-- Python 3.8+
-- `requests` package (`pip install requests`)
-- An Alibaba Cloud account with [Bailian (百炼)](https://bailian.console.aliyun.com) access
-- A Bailian Knowledge Base with documents uploaded
-- A Bailian Application with the Knowledge Base attached
-
-## Setup
-
-### 1. Install the skill
-
-Copy this directory to your OpenClaw workspace:
-
-```bash
-cp -r bailian-kb-query ~/.openclaw/workspace/skills/bailian-kb
+## Architecture
+```
+User question → bailian-query.py → Bailian Application API → RAG retrieval → Answer with citations
 ```
 
-### 2. Configure credentials
+## Key Technical Decisions
 
-Copy the example config and fill in your values:
-
-```bash
-cd ~/.openclaw/workspace/skills/bailian-kb
-cp CONFIG.example.md CONFIG.md
-# Edit CONFIG.md with your actual credentials
-```
-
-You'll need 4 values from your Bailian console:
-
-| Field | Where to find it |
+### 1. API Approach (Tested 3 methods)
+| Method | Result |
 |---|---|
-| `DASHSCOPE_API_KEY` | Avatar → API Key Management |
-| `BAILIAN_WORKSPACE_ID` | Top-left workspace dropdown |
-| `BAILIAN_KB_ID` | Knowledge Base → Your KB → ID |
-| `BAILIAN_APP_ID` | App Management → Your App → App ID |
+| OpenAI compat + `knowledge_base` extra_body | ❌ Model hallucinated, didn't actually search KB |
+| DashScope Retrieve API (`/indices/{id}/retrieve`) | ❌ Returns HTML, endpoint incorrect for API Key auth |
+| **Bailian Application API** (`/apps/{APP_ID}/completion`) | ✅ Works perfectly with `has_thoughts: true` |
 
-### 3. Test
+### 2. Credential Management
+- Credentials stored in `CONFIG.md` (gitignored)
+- `CONFIG.example.md` as template for sharing
+- Script reads CONFIG.md at runtime via regex parser
+- First-time use: script returns `SETUP_REQUIRED` JSON → agent guides user through 4-step setup
 
-```bash
-python3 scripts/bailian-query.py "What documents are in the knowledge base?"
-```
+### 3. Required IDs
+| ID | Format | Source |
+|---|---|---|
+| `DASHSCOPE_API_KEY` | `sk-xxx` | Bailian Console → API Key Management |
+| `BAILIAN_WORKSPACE_ID` | `llm-xxx` | Console → Workspace dropdown |
+| `BAILIAN_KB_ID` | ~10 char alphanumeric | Console → Knowledge Base → KB card |
+| `BAILIAN_APP_ID` | 32-char hex | Console → App Management → App card |
 
-## Usage
-
-### Direct CLI
-
-```bash
-python3 scripts/bailian-query.py "What is the company travel policy?"
-```
-
-### As OpenClaw Skill
-
-Once installed, OpenClaw agents will automatically trigger this skill when users ask questions about internal documents, company policies, or knowledge base content.
-
-## File Structure
-
-```
-bailian-kb-query/
-├── README.md            # This file
-├── SKILL.md             # OpenClaw skill definition & agent instructions
-├── CONFIG.example.md    # Config template (safe to share)
-├── CONFIG.md            # Your credentials (gitignored)
-├── .gitignore           # Excludes CONFIG.md
-└── scripts/
-    └── bailian-query.py # Main query script
-```
-
-## How It Works
-
-1. Script reads credentials from `CONFIG.md`
-2. Sends query to Bailian Application API (`/api/v1/apps/{APP_ID}/completion`)
-3. Bailian automatically retrieves relevant document chunks from the knowledge base
-4. Returns AI-generated answer with document citations
+## Lessons Learned
+1. Bailian KB **must** be accessed through Application API — no shortcut via OpenAI compat mode
+2. Application needs to be created manually in console and linked to KB
+3. Vague queries ("list all files") trigger fallback; specific queries work perfectly
+4. Account must have positive balance even for free tier usage (Arrearage error)
+5. `has_thoughts: true` + `doc_reference_type: "simple"` returns retrieval process and citations
 
 ## Cost
+- ~4,000-6,000 tokens per query
+- Model: qwen-plus (configurable in Bailian console)
+- Alibaba Cloud Bailian has free tier credits
 
-- Bailian offers free tier credits for new accounts
-- Typical query: ~4,000-6,000 tokens (input + output)
-- Model: `qwen-plus` (configurable in Bailian console)
-
-## License
-
-MIT
+## Files in Repo
+```
+bailian-kb-query/
+├── README.md
+├── SKILL.md
+├── CONFIG.example.md
+├── .gitignore
+└── scripts/
+    ├── bailian-query.py
+    └── bailian-query.sh
+```

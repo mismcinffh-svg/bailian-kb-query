@@ -187,3 +187,123 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ─── MCP Mode (JSON-RPC stdio) ────────────────────────────────────────────────
+
+def mcp_main():
+    """MCP stdio entry point: read JSON-RPC requests from stdin, write to stdout."""
+    import sys
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            request = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        method = request.get("method", "")
+        req_id = request.get("id")
+        params = request.get("params", {})
+
+        if method == "tools/list":
+            result = {
+                "tools": [{
+                    "name": "bailian-kb",
+                    "description": "Query Alibaba Cloud Bailian knowledge base for internal documents, company policies, HR, travel, reimbursement info.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "question": {
+                                "type": "string",
+                                "description": "The question to ask the knowledge base"
+                            }
+                        },
+                        "required": ["question"]
+                    }
+                }]
+            }
+            print(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": result}, ensure_ascii=False))
+            sys.stdout.flush()
+
+        elif method == "tools/call":
+            tool_name = params.get("name", "")
+            arguments = params.get("arguments", {})
+            question = arguments.get("question", "")
+
+            if not question:
+                print(json.dumps({
+                    "jsonrpc": "2.0", "id": req_id,
+                    "error": {"code": -1, "message": "Missing required parameter: question"}
+                }, ensure_ascii=False))
+                sys.stdout.flush()
+                continue
+
+            # Run the actual query
+            config = load_config()
+            if config is None:
+                print(json.dumps({
+                    "jsonrpc": "2.0", "id": req_id,
+                    "error": {"code": -2, "message": "SETUP_REQUIRED: Bailian KB not configured"}
+                }, ensure_ascii=False))
+                sys.stdout.flush()
+                continue
+
+            api_key = config.get("DASHSCOPE_API_KEY", "")
+            app_id = config.get("BAILIAN_APP_ID", "")
+
+            if not api_key or not app_id:
+                print(json.dumps({
+                    "jsonrpc": "2.0", "id": req_id,
+                    "error": {"code": -3, "message": f"Missing config: api_key={bool(api_key)}, app_id={bool(app_id)}"}
+                }, ensure_ascii=False))
+                sys.stdout.flush()
+                continue
+
+            result = query_app(question, api_key, app_id)
+
+            if "error" in result:
+                print(json.dumps({
+                    "jsonrpc": "2.0", "id": req_id,
+                    "error": {"code": -4, "message": result["error"]}
+                }, ensure_ascii=False))
+                sys.stdout.flush()
+                continue
+
+            # Format result as MCP tool call response
+            output_text = result.get("answer", "")
+            doc_refs = result.get("doc_references", [])
+            if doc_refs:
+                refs_str = "\n".join([f"- {r.get('doc_name', r.get('title', 'Unknown'))}" for r in doc_refs])
+                output_text += f"\n\n📑 引用来源:\n{refs_str}"
+
+            print(json.dumps({
+                "jsonrpc": "2.0", "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": output_text}]
+                }
+            }, ensure_ascii=False))
+            sys.stdout.flush()
+
+        elif method == "initialize":
+            print(json.dumps({
+                "jsonrpc": "2.0", "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "bailian-kb", "version": "1.0.0"}
+                }
+            }, ensure_ascii=False))
+            sys.stdout.flush()
+
+        elif method == "notifications/initialized":
+            # Client ready signal, no response needed
+            pass
+
+
+if __name__ == "__main__" and len(sys.argv) == 1:
+    # No args → MCP mode
+    mcp_main()
+elif __name__ == "__main__" and sys.argv[1] == "--mcp":
+    mcp_main()
