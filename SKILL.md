@@ -13,102 +13,168 @@ description: >-
 
 # Bailian Knowledge Base RAG Query
 
-This skill queries Alibaba Cloud Bailian (百炼) Application API for RAG-powered Q&A.
-The Application has a knowledge base attached and automatically retrieves relevant
-document chunks to generate answers with citations.
+Queries Alibaba Cloud Bailian (百炼) Application API for RAG-powered Q&A against
+an attached knowledge base. Returns answers with document citations.
 
-## First-Time Setup
+---
 
-This skill requires 4 credentials stored in `CONFIG.md`. On first use, guide the
-user through the setup process.
+## 🤖 AGENT QUICK-START (Read This First)
+
+If you are an AI agent installing this skill, follow these steps in order:
+
+### Step 1 — Install the skill files
+
+If the files are not yet on this machine:
+
+```bash
+git clone https://github.com/mismcinffh-svg/bailian-kb-query.git \
+  ~/.openclaw/workspace/skills/bailian-kb
+
+cd ~/.openclaw/workspace/skills/bailian-kb
+```
+
+### Step 2 — Run the setup script (registers MCP tool automatically)
+
+```bash
+bash scripts/install.sh
+```
+
+The install script will:
+- Check Python 3 is available
+- Register `bailian-kb` as an MCP tool via `mcporter`
+- Create `CONFIG.md` from the template
+
+### Step 3 — Configure credentials
+
+Edit `CONFIG.md` and fill in the 4 required values. Get them from
+https://bailian.console.aliyun.com:
+
+| Config key | Where to find |
+|---|---|
+| `DASHSCOPE_API_KEY` | Avatar → API Key Management |
+| `BAILIAN_WORKSPACE_ID` | Top-left workspace dropdown |
+| `BAILIAN_KB_ID` | Knowledge Base → your KB → ID |
+| `BAILIAN_APP_ID` | App Management → your app → ID |
+
+### Step 4 — Verify it works
+
+```bash
+mcporter call bailian-kb.bailian-kb question="test query"
+# Expected: JSON response with an answer (or SETUP_REQUIRED if not configured)
+```
+
+### Step 5 — Use it when triggered
+
+When a user asks about internal knowledge, policies, procedures, travel,
+reimbursement, HR, etc., call the tool:
+
+```bash
+mcporter call bailian-kb.bailian-kb question="<user's question>"
+```
+
+Or use the CLI directly:
+
+```bash
+python3 scripts/bailian-query.py "user's question here"
+```
+
+---
+
+## First-Time Setup (Human Operator)
+
+This skill requires 4 credentials stored in `CONFIG.md`.
 
 ### Check if configured
 
 ```bash
-python3 <SKILL_DIR>/scripts/bailian-query.py "test"
+python3 scripts/bailian-query.py "test"
 ```
 
-If the script returns `SETUP_REQUIRED`, follow the setup flow below.
+If the script returns `SETUP_REQUIRED`, follow the setup flow.
 
-### Guide user to obtain IDs
-
-Walk the user through each step:
+### Obtain credentials
 
 1. **API Key** (`DASHSCOPE_API_KEY`)
    - Log in to https://bailian.console.aliyun.com
    - Click avatar (top-right) → API Key Management → Copy API Key
-   - Format: `sk-xxxxxxx`
 
 2. **Workspace ID** (`BAILIAN_WORKSPACE_ID`)
    - Bailian Console → Top-left workspace dropdown → Copy Workspace ID
-   - Format: `llm-xxxxxxx`
 
 3. **Knowledge Base ID** (`BAILIAN_KB_ID`)
    - Bailian Console → Knowledge Base → Click your KB → Copy ID
-   - ~10 character alphanumeric string
-   - If no KB exists: Knowledge Base → Create → Select "Document Search" → Upload documents
 
 4. **Application ID** (`BAILIAN_APP_ID`)
-   - Bailian Console → App Management → Create Agent App → Select model (recommend qwen-plus)
-   - In the "Documents" section, add the knowledge base from step 3 → Save
-   - Copy Application ID (32-char hex)
+   - Bailian Console → App Management → Create Agent App → Select model
+   - In "Documents" section, link your knowledge base → Save
+   - Copy Application ID
 
 ### Write configuration
 
-Once all 4 IDs are collected, write them to `<SKILL_DIR>/CONFIG.md`:
+Write to `CONFIG.md`:
 
 ```markdown
 # Bailian KB Configuration
 
 ## API Key
-DASHSCOPE_API_KEY=<user's API Key>
+DASHSCOPE_API_KEY=<your-api-key>
 
 ## Workspace ID
-BAILIAN_WORKSPACE_ID=<user's Workspace ID>
+BAILIAN_WORKSPACE_ID=<your-workspace-id>
 
 ## Knowledge Base ID
-BAILIAN_KB_ID=<user's KB ID>
+BAILIAN_KB_ID=<your-kb-id>
 
 ## Application ID
-BAILIAN_APP_ID=<user's Application ID>
+BAILIAN_APP_ID=<your-app-id>
 ```
 
-Run a test query to verify connectivity.
+---
 
-## Query Command
+## Architecture
 
-**Option A — Direct CLI (any agent can use immediately):**
-```bash
-python3 <SKILL_DIR>/scripts/bailian-query.py "user's question here"
 ```
-
-**Option B — MCP Tool (recommended for full OpenClaw integration):**
-```bash
-# Register once:
-mcporter config add bailian-kb --stdio "python3 <SKILL_DIR>/scripts/bailian-query.py --mcp"
-
-# Then call like any tool:
-mcporter call bailian-kb.bailian-kb question="user's question here"
-```
-
-**Or use the install script (does everything automatically):**
-```bash
-bash <SKILL_DIR>/scripts/install.sh
+User question
+    │
+    ├─ CLI mode ──────────────→ python3 bailian-query.py "Q"
+    │                                        │
+    │                                        ▼
+    │                              Bailian Application API
+    │                                        │
+    │                                        ▼
+    └─ MCP mode ──────────────→ mcporter call bailian-kb.bailian-kb question="Q"
+                                 (bailian-query.py --mcp in stdio mode)
+                                              │
+                                              ▼
+                                    Bailian Application API
 ```
 
 ## Workflow
 
-1. Receive a question about internal knowledge/documents
-2. Run the query command with the user's question as argument
-3. Format the returned answer (including doc references/citations) and reply
+1. Receive a question matching trigger words (知識庫, internal docs, company policy, etc.)
+2. Call via CLI or MCP tool
+3. Return the answer with document citations — **never fabricate**
 
 ## Notes
 
-- Ask specific questions; vague queries like "list all files" may trigger a fallback response
-- Only return knowledge base results; never fabricate answers
-- Preserve doc_references so users know which document the answer came from
-- If errors occur, check API Key validity and account balance
-- `CONFIG.md` contains sensitive credentials — **never commit to Git**
-- `CONFIG.example.md` is a safe template for sharing
+- Specific questions work best; vague queries ("list all docs") may trigger fallback
+- Never return answers not from the knowledge base
+- Always preserve doc_references so users know the source
+- If errors occur: check API Key validity and account balance
+- `CONFIG.md` contains credentials — **never commit to Git**
 - Timeout is 120s (KB retrieval can be slow)
-- For MCP mode, run `install.sh` once to register the tool; after that it appears in `mcporter list` automatically
+- After `install.sh` runs once, `mcporter list` will show `bailian-kb` automatically
+
+## Files in This Repo
+
+```
+bailian-kb-query/
+├── SKILL.md              ← This file (agent + human instructions)
+├── README.md             ← Full documentation
+├── CONFIG.example.md     ← Credential template
+├── .gitignore            ← Ignores CONFIG.md
+└── scripts/
+    ├── bailian-query.py  ← Dual-mode: CLI + MCP stdio
+    ├── bailian-query.sh  ← Bash wrapper
+    └── install.sh        ← One-command setup (MCP registration + CONFIG)
+```
