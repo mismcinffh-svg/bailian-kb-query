@@ -77,8 +77,23 @@ Run a test query to verify connectivity.
 
 ## Query Command
 
+**Option A — Direct CLI (any agent can use immediately):**
 ```bash
 python3 <SKILL_DIR>/scripts/bailian-query.py "user's question here"
+```
+
+**Option B — MCP Tool (recommended for full OpenClaw integration):**
+```bash
+# Register once:
+mcporter config add bailian-kb --stdio "python3 <SKILL_DIR>/scripts/bailian-query.py --mcp"
+
+# Then call like any tool:
+mcporter call bailian-kb.bailian-kb question="user's question here"
+```
+
+**Or use the install script (does everything automatically):**
+```bash
+bash <SKILL_DIR>/scripts/install.sh
 ```
 
 ## Workflow
@@ -96,3 +111,4 @@ python3 <SKILL_DIR>/scripts/bailian-query.py "user's question here"
 - `CONFIG.md` contains sensitive credentials — **never commit to Git**
 - `CONFIG.example.md` is a safe template for sharing
 - Timeout is 120s (KB retrieval can be slow)
+- For MCP mode, run `install.sh` once to register the tool; after that it appears in `mcporter list` automatically
