@@ -153,8 +153,36 @@ User question
 
 1. Receive a question matching trigger words (知識庫, internal docs, company policy, etc.)
 2. Call via CLI or MCP tool
-3. **If images are returned**: download and attach to response
-4. Return the answer with document citations and any images — **never fabricate**
+3. **Parse the response**: Extract text, images, and doc references
+4. **Send in step-by-step format** (see below)
+5. Return the answer with document citations and any images — **never fabricate**
+
+## Telegram Response Format (Step-by-Step with Screenshots)
+
+**IMPORTANT**: When the response contains images, send in step-by-step format for better readability:
+
+**Format**: Each step sends as a separate message pair:
+1. Text message describing the step
+2. Image attachment (if corresponding screenshot exists)
+
+**Example flow**:
+```
+Message 1: "**Step 1：登錄**\n登錄網址：http://helpdesk.forward-fashion.com2"
+Message 2: [screenshot of login page]
+
+Message 3: "**Step 2：選擇平台**\n選擇「行政營運及維修服務平台(澳門)」"
+Message 4: [screenshot of platform selection]
+
+... and so on for each step
+```
+
+**Rules**:
+- Each step = 1 text message + 1 image (if available)
+- Use "**Step N：標題**" format for step headers
+- Send images immediately after their corresponding step description
+- Do NOT batch all text then all images — maintain step-to-image correspondence
+- If multiple steps use the same image, still send it after each relevant step
+- Clean up temporary image directory after all messages are sent
 
 ## Image Support (圖文並茂回覆)
 
@@ -166,8 +194,9 @@ This skill supports **圖文並茂回覆** when:
 When images are available:
 - Script downloads images to temporary directory
 - Returns JSON with `text` and `images` fields
-- OpenClaw sends text message + image attachments
-- Temporary files are cleaned up after sending
+- **IMPORTANT**: Send images in step-by-step format (see Telegram Response Format above)
+- Never batch all text then all images — maintain step-to-image correspondence
+- Temporary files are cleaned up after all messages are sent
 
 ## Notes
 
