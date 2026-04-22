@@ -1,14 +1,14 @@
 ---
 name: bailian-kb
 description: >-
-  Query Alibaba Cloud Bailian (百炼) Knowledge Base for RAG retrieval.
+  Query Alibaba Cloud Bailian (百炼) Knowledge Base for RAG retrieval with image support.
   Use when users ask about internal documents, company policies, procedures,
   product manuals, employee handbooks, project docs, technical docs, travel
   policies, reimbursement rules, HR regulations, or any internal knowledge.
   Also triggers when users explicitly ask to search the knowledge base or
-  look up internal materials. Trigger words: knowledge base, internal docs,
-  company policy, employee handbook, search docs, find info, 知識庫, 內部文檔,
-  公司政策, 差旅, 報銷, 出差, claim.
+  look up internal materials. **Supports 圖文並茂回覆 (rich text with images)**.
+  Trigger words: knowledge base, internal docs, company policy, employee handbook,
+  search docs, find info, 知識庫, 內部文檔, 公司政策, 差旅, 報銷, 出差, claim.
 ---
 
 # Bailian Knowledge Base RAG Query
@@ -153,13 +153,28 @@ User question
 
 1. Receive a question matching trigger words (知識庫, internal docs, company policy, etc.)
 2. Call via CLI or MCP tool
-3. Return the answer with document citations — **never fabricate**
+3. **If images are returned**: download and attach to response
+4. Return the answer with document citations and any images — **never fabricate**
+
+## Image Support (圖文並茂回覆)
+
+This skill supports **圖文並茂回覆** when:
+1. Knowledge base is configured with **使用場景: 圖文並茂回覆**
+2. Application uses **千問-Plus** or **千問-Plus-Latest** model
+3. Documents contain embedded images
+
+When images are available:
+- Script downloads images to temporary directory
+- Returns JSON with `text` and `images` fields
+- OpenClaw sends text message + image attachments
+- Temporary files are cleaned up after sending
 
 ## Notes
 
 - Specific questions work best; vague queries ("list all docs") may trigger fallback
 - Never return answers not from the knowledge base
 - Always preserve doc_references so users know the source
+- **Image support**: When KB is configured for 圖文並茂回覆, images are automatically downloaded and attached
 - If errors occur: check API Key validity and account balance
 - `CONFIG.md` contains credentials — **never commit to Git**
 - Timeout is 120s (KB retrieval can be slow)
