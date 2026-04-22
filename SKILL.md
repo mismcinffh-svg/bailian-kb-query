@@ -152,37 +152,63 @@ User question
 ## Workflow
 
 1. Receive a question matching trigger words (知識庫, internal docs, company policy, etc.)
-2. Call via CLI or MCP tool
-3. **Parse the response**: Extract text, images, and doc references
-4. **Send in step-by-step format** (see below)
+2. Call via CLI: `python3 scripts/bailian-query.py "question"`
+3. **Parse the JSON response** (see Output Format below)
+4. **Send in step-by-step format** (see Telegram Response Format below)
 5. Return the answer with document citations and any images — **never fabricate**
 
-## Telegram Response Format (Step-by-Step with Screenshots)
+## Output Format (JSON)
 
-**IMPORTANT**: When the response contains images, send in step-by-step format for better readability:
+The script returns structured JSON:
 
-**Format**: Each step sends as a separate message pair:
-1. Text message describing the step
-2. Image attachment (if corresponding screenshot exists)
+```json
+{
+  "steps": [
+    {
+      "number": 1,
+      "title": "Step title",
+      "text": "Additional step details (if any)",
+      "image": "/tmp/.../0.png"  // null if no image
+    },
+    ...
+  ],
+  "images": [
+    {"path": "/tmp/.../0.png", "alt": "description"},
+    ...
+  ],
+  "model": "qwen-max-2025-01-25",
+  "temp_dir": "/tmp/bailian_images_xxx",
+  "doc_references": [...]
+}
+```
+
+## Telegram Response Format
+
+**IMPORTANT**: Always send in step-by-step format:
+
+1. For each step in `steps` array:
+   - Send text message: "**Step N：標題**\n內容"
+   - If step has image, send image immediately after
+
+2. If no steps (pure text), send as single message
+
+3. Clean up `temp_dir` after all messages sent
 
 **Example flow**:
 ```
-Message 1: "**Step 1：登錄**\n登錄網址：http://helpdesk.forward-fashion.com2"
-Message 2: [screenshot of login page]
-
-Message 3: "**Step 2：選擇平台**\n選擇「行政營運及維修服務平台(澳門)」"
-Message 4: [screenshot of platform selection]
-
-... and so on for each step
+Message 1: "**Step 1：登錄**\n登錄網址：http://..."
+Message 2: [image /tmp/bailian_images_xxx/0.png]
+Message 3: "**Step 2：選擇平台**\n選擇「行政營運...」"
+Message 4: [image /tmp/bailian_images_xxx/1.png]
+...
 ```
 
 **Rules**:
 - Each step = 1 text message + 1 image (if available)
 - Use "**Step N：標題**" format for step headers
-- Send images immediately after their corresponding step description
-- Do NOT batch all text then all images — maintain step-to-image correspondence
-- If multiple steps use the same image, still send it after each relevant step
-- Clean up temporary image directory after all messages are sent
+- Send images immediately after their corresponding step
+- Do NOT batch all text then all images
+- Clean up temporary directory after sending
 
 ## Image Support (圖文並茂回覆)
 

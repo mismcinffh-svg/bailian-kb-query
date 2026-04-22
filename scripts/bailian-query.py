@@ -2,13 +2,25 @@
 """
 Bailian Knowledge Base RAG Query Script
 Calls a Bailian Application (with KB attached) via DashScope API.
+Supports step-by-step output format with images.
 
 Usage:
   python3 bailian-query.py "你的问题"
 
-Configuration:
-  Reads credentials from CONFIG.md in the skill root directory.
-  If CONFIG.md doesn't exist, exits with setup instructions.
+Output format (JSON):
+{
+  "steps": [
+    {
+      "number": 1,
+      "title": "Step title",
+      "text": "Step description",
+      "image": "/path/to/image.png"  // or null if no image
+    }
+  ],
+  "images": [...],  // All downloaded images with paths
+  "model": "qwen-max-2025-01-25",
+  "temp_dir": "/tmp/..."
+}
 """
 
 import sys
@@ -109,27 +121,8 @@ def query_app(question: str, api_key: str, app_id: str) -> dict:
         output = data.get("output", {})
         usage = data.get("usage", {})
 
-        # Extract images from answer text (markdown format)
-        answer_text = output.get("text", "")
-        images = []
-        
-        # Look for markdown image syntax ![alt](url)
-        import re
-        image_pattern = r'!\[([^\]]*)\]\(([^)]+)\)'
-        matches = re.findall(image_pattern, answer_text)
-        
-        for alt_text, image_url in matches:
-            images.append({
-                "url": image_url,
-                "alt": alt_text
-            })
-        
-        # Remove markdown images from text for cleaner output
-        clean_text = re.sub(image_pattern, '', answer_text).strip()
-        
         result = {
-            "answer": clean_text,
-            "images": images,
+            "answer": output.get("text", ""),
             "finish_reason": output.get("finish_reason", ""),
             "doc_references": output.get("doc_references", []),
             "usage": usage,
@@ -169,6 +162,122 @@ def download_image(image_url: str, temp_dir: str) -> str:
     except Exception as e:
         print(f"Warning: Failed to download image {image_url}: {e}", file=sys.stderr)
         return None
+
+
+def parse_steps_with_images(answer_text: str, image_paths: list) -> list:
+    """
+    Parse answer text into structured steps with corresponding images.
+    
+    Algorithm:
+    1. Split text into blocks by Step N patterns
+    2. For each step, extract the markdown image that follows
+    3. Return list of steps with their images
+    """
+    steps = []
+    
+    # Pattern to match Step headers
+    step_pattern = r'\*\*Step\s*(\d+)[:：]\s*([^\n*]+)\*\*|\*\*(\d+)[\.\)]\s*([^\n*]+)\*\*|^(Step\s*(\d+)[:：]\s*)(.+?)(?=\n\n|\Z)|^(\d+)[\.\)]\s*([^\n]+)'
+    
+    # Alternative: split by numbered patterns more simply
+    lines = answer_text.split('\n')
+    
+    current_step = None
+    current_text_parts = []
+    current_image_index = 0
+    
+    # Image pattern
+    img_pattern = r'!\[([^\]]*)\]\(([^)]+)\)'
+    
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check if this line is a step header
+        step_match = re.match(r'^(Step\s*(\d+)[:：]\s*)(.+)', line, re.IGNORECASE)
+        num_step_match = re.match(r'^(\d+)[\.\)]\s*(.+)', line)
+        
+        is_step_header = False
+        step_num = None
+        step_title = None
+        
+        if step_match:
+            is_step_header = True
+            step_title = step_match.group(3).strip()
+            # Remove markdown formatting from title
+            step_title = re.sub(r'\*\*(.+?)\*\*', r'\1', step_title)
+            step_num = int(step_match.group(2))
+        elif num_step_match:
+            is_step_header = True
+            step_num = int(num_step_match.group(1))
+            step_title = num_step_match.group(2).strip()
+            step_title = re.sub(r'\*\*(.+?)\*\*', r'\1', step_title)
+        
+        if is_step_header:
+            # Save previous step if exists
+            if current_step is not None:
+                current_step['text'] = '\n'.join(current_text_parts).strip()
+                # Try to find image for this step
+                # Simple approach: round-robin images based on step number
+                if image_paths:
+                    img_idx = (current_step['number'] - 1) % len(image_paths)
+                    current_step['image'] = image_paths[img_idx]
+                else:
+                    current_step['image'] = None
+                steps.append(current_step)
+            
+            # Start new step
+            current_step = {
+                'number': step_num,
+                'title': step_title,
+                'text': '',
+                'image': None
+            }
+            current_text_parts = []
+        elif current_step is not None:
+            # Check if this line contains an image
+            img_match = re.search(img_pattern, line)
+            if img_match:
+                # This line has an image - skip it from text (image will be handled separately)
+                # But keep the alt text if any
+                alt_text = img_match.group(1)
+                if alt_text and alt_text.strip():
+                    current_text_parts.append(alt_text)
+            else:
+                # Regular text - add to step
+                clean_line = re.sub(img_pattern, '', line).strip()
+                if clean_line:
+                    current_text_parts.append(clean_line)
+    
+    # Don't forget the last step
+    if current_step is not None:
+        current_step['text'] = '\n'.join(current_text_parts).strip()
+        if image_paths:
+            img_idx = (current_step['number'] - 1) % len(image_paths)
+            current_step['image'] = image_paths[img_idx]
+        else:
+            current_step['image'] = None
+        steps.append(current_step)
+    
+    # If no steps parsed but we have content and images, treat as single step
+    if not steps and answer_text.strip() and image_paths:
+        steps.append({
+            'number': 1,
+            'title': '',
+            'text': answer_text.strip(),
+            'image': image_paths[0] if image_paths else None
+        })
+    elif not steps:
+        # Pure text only
+        steps.append({
+            'number': 1,
+            'title': '',
+            'text': answer_text.strip(),
+            'image': None
+        })
+    
+    return steps
+
 
 def main():
     if len(sys.argv) < 2:
@@ -213,27 +322,37 @@ def main():
     temp_dir = tempfile.mkdtemp(prefix="bailian_images_")
     downloaded_images = []
     
-    # Download images if available
-    if result.get("images"):
-        for img in result["images"]:
-            filepath = download_image(img["url"], temp_dir)
-            if filepath:
-                downloaded_images.append({
-                    "path": filepath,
-                    "alt": img.get("alt", "")
-                })
+    # Extract and download images from answer
+    answer_text = result.get("answer", "")
+    img_pattern = r'!\[([^\]]*)\]\(([^)]+)\)'
+    image_urls = re.findall(img_pattern, answer_text)
     
-    # Prepare output
+    for alt_text, image_url in image_urls:
+        filepath = download_image(image_url, temp_dir)
+        if filepath:
+            downloaded_images.append({
+                "path": filepath,
+                "alt": alt_text
+            })
+    
+    # Parse steps with images
+    image_paths = [img["path"] for img in downloaded_images]
+    steps = parse_steps_with_images(answer_text, image_paths)
+    
+    # Build response
+    model_name = "unknown"
+    if result.get("usage", {}).get("models"):
+        model_name = result["usage"]["models"][0].get("model_id", "unknown")
+    
     output = {
-        "answer": result["answer"],
+        "steps": steps,
         "images": downloaded_images,
-        "doc_references": result.get("doc_references", []),
-        "usage": result.get("usage", {}),
-        "model": result.get("usage", {}).get("models", [{}])[0].get("model_id", "unknown") if result.get("usage", {}).get("models") else "unknown",
-        "temp_dir": temp_dir  # For cleanup
+        "model": model_name,
+        "temp_dir": temp_dir,
+        "doc_references": result.get("doc_references", [])
     }
     
-    # Print JSON output for OpenClaw to parse
+    # Print JSON output
     print(json.dumps(output, ensure_ascii=False, indent=2))
 
 
@@ -323,19 +442,12 @@ def mcp_main():
                 sys.stdout.flush()
                 continue
 
-            # Format result as MCP tool call response
+            # Format result as MCP tool call response (legacy format for backward compatibility)
             output_text = result.get("answer", "")
             doc_refs = result.get("doc_references", [])
             if doc_refs:
                 refs_str = "\n".join([f"- {r.get('doc_name', r.get('title', 'Unknown'))}" for r in doc_refs])
-                output_text += f"\n\n📑 引用来源:\n{refs_str}"
-            
-            # Add image info if available
-            images = result.get("images", [])
-            if images:
-                output_text += "\n\n🖼️ 圖片:\n"
-                for i, img in enumerate(images, 1):
-                    output_text += f"  {i}. {img.get('alt', '圖片')}\n"
+                output_text += f"\n\n📑 引用來源:\n{refs_str}"
 
             print(json.dumps({
                 "jsonrpc": "2.0", "id": req_id,
@@ -351,7 +463,7 @@ def mcp_main():
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "bailian-kb", "version": "1.0.0"}
+                    "serverInfo": {"name": "bailian-kb", "version": "2.0.0"}
                 }
             }, ensure_ascii=False))
             sys.stdout.flush()
